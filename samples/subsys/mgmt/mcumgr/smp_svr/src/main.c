@@ -23,6 +23,7 @@
 LOG_MODULE_REGISTER(smp_sample);
 
 #include "common.h"
+#include "watchdog.h"
 
 #define STORAGE_PARTITION_LABEL	storage_partition
 #define STORAGE_PARTITION_ID	FIXED_PARTITION_ID(STORAGE_PARTITION_LABEL)
@@ -52,6 +53,14 @@ static struct fs_mount_t littlefs_mnt = {
 
 int main(void)
 {
+
+	uint32_t reset_cause = 0;
+	/* Initialize watchdog */
+	int wtd = init_watchdog();
+	if (wtd < 0) {
+		LOG_ERR("Error initializing watchdog [%d]", wtd);
+	}
+
 	int rc = STATS_INIT_AND_REG(smp_svr_stats, STATS_SIZE_32,
 				    "smp_svr_stats");
 
@@ -79,9 +88,16 @@ int main(void)
 	/* The system work queue handles all incoming mcumgr requests.  Let the
 	 * main thread idle while the mcumgr server runs.
 	 */
+
+	print_current_reset_cause(&reset_cause);
+	clear_reset_cause();
 	while (1) {
-		k_sleep(K_MSEC(1000));
+		k_sleep(K_MSEC(WDG_FEED_INTERVAL));
 		STATS_INC(smp_svr_stats, ticks);
+		/* Feed the watchdog to prevent reset (only if not stopped) */
+		if (wdt_dev && wdt_channel_id >= 0) {
+			wdt_feed(wdt_dev, wdt_channel_id);
+		}
 	}
 	return 0;
 }
